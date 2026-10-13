@@ -128,7 +128,7 @@
     overflow-wrap: anywhere;
   }
   .for-panel .tip { margin-top: 16px; font-size: .9rem; opacity: .9; }
-  .for-panel.empty { background: var(--pine-2); }
+  .for-panel.pending { background: var(--pine-2); }
   .for-panel .limit {
     display: inline-block; margin-top: 18px;
     background: var(--ivory); color: #7a1624;
@@ -165,6 +165,12 @@
   .tag { font-size: .85rem; color: var(--muted); padding: 6px 12px; border-radius: 999px; box-shadow: inset 0 0 0 1.5px var(--pine-3); white-space: nowrap; }
   .tag.mine { color: #0b2a20; background: var(--mint); box-shadow: none; font-weight: 600; }
   .empty { color: var(--muted); padding: 14px 0; }
+
+  .item.editing { display: block; }
+  .item.editing input { margin-bottom: 10px; }
+  .item.editing .edit-actions { display: flex; gap: 8px; margin-top: 4px; }
+  .item .act .edit { background: transparent; color: var(--mint); padding: 8px 12px; font-weight: 600; font-size: .88rem; }
+  .item .act .edit:hover { background: var(--pine-3); }
 
   .adder {
     background: var(--pine-2); border-radius: 22px;
@@ -362,7 +368,7 @@ function linkify(escaped) {
 function renderRecipients(list) {
   const panel = $("forPanel");
   if (!list.length) {
-    panel.className = "for-panel empty";
+    panel.className = "for-panel pending";
     panel.innerHTML = `<p class="small-line">The names haven't been drawn yet.</p>`;
     $("recipients").innerHTML = "";
     return;
@@ -413,22 +419,64 @@ function renderRecipients(list) {
   });
 }
 
+let myItemsCache = [];
+let editingId = null;
+
 function renderMyItems(items) {
+  if (items) myItemsCache = items;
+  items = myItemsCache;
   if (!items.length) {
     $("myItems").innerHTML = `<p class="empty">Your list is empty. Add your first idea above.</p>`;
     return;
   }
-  $("myItems").innerHTML = items.map((it) => `
-    <div class="item">
+  $("myItems").innerHTML = items.map((it) => {
+    if (it.id === editingId) {
+      return `<div class="item editing">
+        <input id="editTitle" type="text" maxlength="200" value="${esc(it.title)}" aria-label="Item name" placeholder="What would you like?">
+        <input id="editNote" type="text" maxlength="500" value="${esc(it.note || "")}" aria-label="Details or link" placeholder="Size, colour or a link (optional)">
+        <div class="edit-actions">
+          <button class="mint small" id="saveEdit">Save</button>
+          <button class="ghost small" id="cancelEdit">Cancel</button>
+        </div>
+      </div>`;
+    }
+    return `<div class="item">
       <div class="text">
         <div class="title">${esc(it.title)}</div>
         ${it.note ? `<div class="note">${linkify(esc(it.note))}</div>` : ""}
       </div>
-      <div class="act"><button class="remove" data-del="${it.id}">Remove</button></div>
-    </div>`).join("");
+      <div class="act">
+        <button class="edit" data-edit="${it.id}">Edit</button>
+        <button class="remove" data-del="${it.id}">Remove</button>
+      </div>
+    </div>`;
+  }).join("");
+
+  $("myItems").querySelectorAll("[data-edit]").forEach((btn) => {
+    btn.addEventListener("click", () => { editingId = Number(btn.dataset.edit); renderMyItems(); $("editTitle").focus(); });
+  });
   $("myItems").querySelectorAll("[data-del]").forEach((btn) => {
     btn.addEventListener("click", () => deleteItem(Number(btn.dataset.del)));
   });
+  if (editingId !== null && $("saveEdit")) {
+    $("saveEdit").addEventListener("click", saveEdit);
+    $("cancelEdit").addEventListener("click", () => { editingId = null; renderMyItems(); });
+    ["editTitle", "editNote"].forEach((id) => $(id).addEventListener("keydown", (e) => {
+      if (e.key === "Enter") saveEdit();
+      if (e.key === "Escape") { editingId = null; renderMyItems(); }
+    }));
+  }
+}
+
+async function saveEdit() {
+  const title = $("editTitle").value.trim();
+  const note = $("editNote").value.trim();
+  if (!title) { showError($("appError"), "An item needs a name."); return; }
+  $("saveEdit").disabled = true;
+  const { error } = await sb.rpc("update_item", { p_name: me.name, p_pin: me.pin, p_id: editingId, p_title: title, p_note: note });
+  if (error) { $("saveEdit").disabled = false; showError($("appError"), cleanError(error)); return; }
+  editingId = null;
+  await refresh();
 }
 
 async function toggleBought(id, btn) {
@@ -461,6 +509,7 @@ async function deleteItem(id) {
 function logout() {
   clearSession();
   me = { name: null, pin: null };
+  editingId = null;
   $("app").classList.add("hidden");
   $("login").classList.remove("hidden");
   updateLoginMode();
