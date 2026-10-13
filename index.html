@@ -153,13 +153,13 @@
 <script>
 // ======================================================
 //  PASTE YOUR SUPABASE DETAILS HERE
-//  (Supabase dashboard > Project Settings > API)
+//  (Supabase dashboard > Project Settings > API Keys: use the "publishable" key, starts with sb_publishable_. Never use the secret key.)
 // ======================================================
 const SUPABASE_URL = "https://aiwinprpumddduwmwgmq.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_8Txq-L7w1elSunmwrfcdhQ_Zn98q6v6";
 // ======================================================
 
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 let me = { name: null, pin: null };
 let peopleInfo = [];
@@ -282,7 +282,7 @@ function renderRecipients(list) {
       html += `<p class="empty">${esc(r.name)} hasn't added anything yet. Check back soon.</p>`;
     }
     for (const it of r.items) {
-      const taken = !!it.bought_by;
+      const taken = !!it.bought;
       let action;
       if (!taken) {
         action = `<button class="green small" data-toggle="${it.id}">I'm buying this</button>`;
@@ -290,7 +290,7 @@ function renderRecipients(list) {
         action = `<span class="badge mine">You're buying this</span>
                   <button class="ghost small" data-toggle="${it.id}">Undo</button>`;
       } else {
-        action = `<span class="badge">Bought by ${esc(it.bought_by)}</span>`;
+        action = `<span class="badge">Already bought</span>`;
       }
       html += `<div class="item ${taken ? "taken" : ""}">
         <div>
