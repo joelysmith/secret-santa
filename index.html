@@ -115,28 +115,22 @@
   /* ---------- the two people ---------- */
   .for-panel {
     background: var(--berry);
-    border-radius: 28px;
-    padding: 24px 22px 26px;
-    margin-bottom: 18px;
+    border-radius: 20px;
+    padding: 16px 18px 16px;
+    margin-bottom: 16px;
   }
-  .for-panel .small-line { font-size: .98rem; opacity: .92; }
-  .for-panel .names { margin-top: 8px; display: grid; gap: 0; }
-  .for-panel .names span {
+  .for-panel .small-line { font-size: .9rem; opacity: .92; }
+  .for-panel .names {
+    margin-top: 2px;
     font-family: var(--display); font-weight: 800;
-    font-size: clamp(2.6rem, 13vw, 3.8rem);
-    letter-spacing: -0.03em; line-height: 1;
+    font-size: clamp(1.55rem, 7.6vw, 2.2rem);
+    letter-spacing: -0.02em; line-height: 1.12;
     overflow-wrap: anywhere;
   }
-  .for-panel .tip { margin-top: 16px; font-size: .9rem; opacity: .9; }
+  .for-panel .names .amp { font-weight: 600; opacity: .75; }
+  .for-panel .tip { margin-top: 10px; font-size: .82rem; opacity: .92; }
   .for-panel.pending { background: var(--pine-2); }
-  .for-panel .limit {
-    display: inline-block; margin-top: 18px;
-    background: var(--ivory); color: #7a1624;
-    font-weight: 600; font-size: .95rem;
-    padding: 7px 16px; border-radius: 999px;
-  }
-  .for-panel .limit + .tip { margin-top: 14px; }
-
+  .for-panel .limit { font-weight: 600; }
   /* ---------- tabs ---------- */
   .seg {
     display: grid; grid-template-columns: 1fr 1fr; gap: 4px;
@@ -377,9 +371,8 @@ function renderRecipients(list) {
   panel.className = "for-panel";
   panel.innerHTML = `
     <p class="small-line">You're buying for</p>
-    <div class="names">${list.map((r) => `<span>${esc(r.name)}</span>`).join("")}</div>
-    <p class="limit">$50 limit per present</p>
-    <p class="tip">Keep it secret. Tick items you're buying so nobody doubles up.</p>`;
+    <div class="names">${list.map((r) => esc(r.name)).join(' <span class="amp">&amp;</span> ')}</div>
+    <p class="tip"><span class="limit">$50 limit per present.</span> Keep it secret, and tick what you're buying so nobody doubles up.</p>`;
 
   let html = "";
   for (const r of list) {
