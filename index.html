@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Family Secret Santa</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --red: #b3202a;
+    --red-dark: #8c1820;
+    --green: #1f6b45;
+    --cream: #fbf6ec;
+    --ink: #2b2420;
+    --muted: #7a6f66;
+    --card: #ffffff;
+    --line: #e8dfd0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--cream);
+    color: var(--ink);
+    line-height: 1.45;
+  }
+  header {
+    background: var(--red);
+    color: #fff;
+    padding: 18px 16px;
+    text-align: center;
+    border-bottom: 5px solid var(--green);
+  }
+  header h1 { margin: 0; font-size: 1.5rem; }
+  header p { margin: 4px 0 0; opacity: .9; font-size: .95rem; }
+  main { max-width: 640px; margin: 0 auto; padding: 16px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  h2 { margin: 0 0 8px; font-size: 1.2rem; }
+  h3 { margin: 0 0 8px; font-size: 1.05rem; color: var(--green); }
+  label { display: block; font-weight: 600; margin: 12px 0 4px; font-size: .92rem; }
+  input, select, textarea {
+    width: 100%;
+    padding: 11px 12px;
+    font-size: 1rem;
+    border: 1px solid #cfc4b2;
+    border-radius: 10px;
+    background: #fff;
+    color: var(--ink);
+    font-family: inherit;
+  }
+  input:focus, select:focus, textarea:focus { outline: 2px solid var(--green); outline-offset: 1px; }
+  button {
+    font-family: inherit;
+    font-size: 1rem;
+    border: 0;
+    border-radius: 10px;
+    padding: 11px 16px;
+    cursor: pointer;
+    background: var(--red);
+    color: #fff;
+    font-weight: 600;
+  }
+  button:hover { background: var(--red-dark); }
+  button.full { width: 100%; margin-top: 16px; }
+  button.small { padding: 7px 12px; font-size: .88rem; }
+  button.green { background: var(--green); }
+  button.green:hover { background: #17533a; }
+  button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+  button.ghost:hover { background: #f3ece0; }
+  button.danger { background: transparent; color: var(--red); border: 1px solid #e5b9bc; }
+  button.danger:hover { background: #fbeaea; }
+  button:disabled { opacity: .55; cursor: not-allowed; }
+  .hint { color: var(--muted); font-size: .88rem; margin-top: 6px; }
+  .error { color: var(--red-dark); background: #fbeaea; border-radius: 8px; padding: 9px 12px; margin-top: 12px; font-size: .92rem; }
+  .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; gap: 10px; }
+  .topbar strong { font-size: 1.15rem; }
+  .item {
+    display: flex; justify-content: space-between; align-items: flex-start; gap: 10px;
+    padding: 10px 0; border-top: 1px solid var(--line);
+  }
+  .item:first-of-type { border-top: 0; }
+  .item .title { font-weight: 600; word-break: break-word; }
+  .item .note { color: var(--muted); font-size: .9rem; word-break: break-word; }
+  .item.taken .title { text-decoration: line-through; color: var(--muted); }
+  .badge { font-size: .8rem; padding: 3px 9px; border-radius: 999px; background: #eee6d6; color: var(--muted); white-space: nowrap; }
+  .badge.mine { background: #d9efe2; color: var(--green); }
+  .empty { color: var(--muted); font-style: italic; padding: 6px 0; }
+  .add-row { display: grid; gap: 8px; margin-top: 10px; }
+  .hidden { display: none; }
+  .gift { font-size: 1.3rem; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🎄 Family Secret Santa 🎁</h1>
+  <p>Everyone buys for 2 people</p>
+</header>
+
+<main>
+
+  <!-- ===== LOGIN ===== -->
+  <section id="login" class="card">
+    <h2>Who are you?</h2>
+    <label for="nameSelect">Your name</label>
+    <select id="nameSelect"><option>Loading…</option></select>
+
+    <label for="pinInput" id="pinLabel">Your PIN</label>
+    <input id="pinInput" type="password" inputmode="numeric" maxlength="8" autocomplete="off" placeholder="PIN">
+
+    <div id="confirmWrap" class="hidden">
+      <label for="pinConfirm">Type the PIN again</label>
+      <input id="pinConfirm" type="password" inputmode="numeric" maxlength="8" autocomplete="off" placeholder="PIN again">
+    </div>
+
+    <p class="hint" id="pinHint"></p>
+    <div id="loginError" class="error hidden"></div>
+    <button class="full" id="loginBtn">Let's go</button>
+  </section>
+
+  <!-- ===== DASHBOARD ===== -->
+  <section id="app" class="hidden">
+    <div class="topbar">
+      <strong id="hello"></strong>
+      <button class="ghost small" id="logoutBtn">Not me / Log out</button>
+    </div>
+
+    <div id="appError" class="error hidden"></div>
+
+    <div id="recipients"></div>
+
+    <div class="card">
+      <h2>🎁 My Christmas wishlist</h2>
+      <p class="hint" style="margin-top:0">Your Secret Santas can see this list. You won't be able to see who has bought what, so the surprise stays a surprise.</p>
+      <div id="myItems"></div>
+
+      <div class="add-row">
+        <input id="newTitle" type="text" maxlength="200" placeholder="Something you'd like (e.g. Lego set)">
+        <input id="newNote" type="text" maxlength="500" placeholder="Details, size, colour or a link (optional)">
+        <button class="green" id="addBtn">Add to my list</button>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<script>
+// ======================================================
+//  PASTE YOUR SUPABASE DETAILS HERE
+//  (Supabase dashboard > Project Settings > API)
+// ======================================================
+const SUPABASE_URL = "https://aiwinprpumddduwmwgmq.supabase.co/rest/v1/";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFpd2lucHJwdW1kZGR1d213Z21xIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE4MzE5NzEsImV4cCI6MjEwNzQwNzk3MX0.yrIYgiZZXoRB2O2-226CPvTeh2WLt2lDst1Hf9CTBUs";
+// ======================================================
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+let me = { name: null, pin: null };
+let peopleInfo = [];
+
+const $ = (id) => document.getElementById(id);
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[c]));
+}
+
+function cleanError(e) {
+  const m = (e && e.message) ? e.message : String(e);
+  return m;
+}
+
+function showError(el, msg) {
+  el.textContent = msg;
+  el.classList.remove("hidden");
+}
+function hideError(el) { el.classList.add("hidden"); }
+
+// ---------- Saved login (this device only) ----------
+function saveSession() {
+  try { localStorage.setItem("santa_session", JSON.stringify(me)); } catch (e) {}
+}
+function loadSession() {
+  try { return JSON.parse(localStorage.getItem("santa_session") || "null"); } catch (e) { return null; }
+}
+function clearSession() {
+  try { localStorage.removeItem("santa_session"); } catch (e) {}
+}
+
+// ---------- Login screen ----------
+async function loadNames() {
+  const { data, error } = await sb.rpc("list_names");
+  if (error) {
+    $("nameSelect").innerHTML = "<option>Could not load names</option>";
+    showError($("loginError"), "Couldn't reach the database. Check the Supabase URL and key at the top of the page. (" + cleanError(error) + ")");
+    return;
+  }
+  peopleInfo = data;
+  $("nameSelect").innerHTML = data
+    .map((p) => `<option value="${esc(p.name)}">${esc(p.name)}</option>`)
+    .join("");
+  updateLoginMode();
+}
+
+function updateLoginMode() {
+  const name = $("nameSelect").value;
+  const p = peopleInfo.find((x) => x.name === name);
+  const firstTime = p && !p.has_pin;
+  $("confirmWrap").classList.toggle("hidden", !firstTime);
+  $("pinLabel").textContent = firstTime ? "Choose a PIN (4 to 8 digits)" : "Your PIN";
+  $("pinHint").textContent = firstTime
+    ? "First time here? Pick a PIN you'll remember. You'll use it every time you come back."
+    : "Forgot your PIN? Ask Joel to reset it.";
+  $("pinInput").value = "";
+  $("pinConfirm").value = "";
+  hideError($("loginError"));
+}
+
+async function doLogin() {
+  hideError($("loginError"));
+  const name = $("nameSelect").value;
+  const pin = $("pinInput").value.trim();
+  const p = peopleInfo.find((x) => x.name === name);
+
+  if (!pin) { showError($("loginError"), "Enter your PIN."); return; }
+  if (p && !p.has_pin && pin !== $("pinConfirm").value.trim()) {
+    showError($("loginError"), "The two PINs don't match.");
+    return;
+  }
+
+  $("loginBtn").disabled = true;
+  const { error } = await sb.rpc("login", { p_name: name, p_pin: pin });
+  $("loginBtn").disabled = false;
+
+  if (error) { showError($("loginError"), cleanError(error)); return; }
+
+  me = { name, pin };
+  saveSession();
+  await showApp();
+}
+
+// ---------- Dashboard ----------
+async function showApp() {
+  $("login").classList.add("hidden");
+  $("app").classList.remove("hidden");
+  $("hello").textContent = "Hi " + me.name + " 👋";
+  await refresh();
+}
+
+async function refresh() {
+  hideError($("appError"));
+  const { data, error } = await sb.rpc("get_dashboard", { p_name: me.name, p_pin: me.pin });
+  if (error) {
+    if (/PIN|Unknown name/i.test(cleanError(error))) { logout(); return; }
+    showError($("appError"), cleanError(error));
+    return;
+  }
+  renderRecipients(data.recipients);
+  renderMyItems(data.my_items);
+}
+
+function renderRecipients(list) {
+  if (!list.length) {
+    $("recipients").innerHTML = `<div class="card"><h2>Your Secret Santa people</h2><p class="empty">The names haven't been drawn yet.</p></div>`;
+    return;
+  }
+
+  const names = list.map((r) => esc(r.name)).join(" and ");
+  let html = `<div class="card"><h2>🎅 You're buying for ${names}</h2>
+    <p class="hint" style="margin:0">Tick "I'm buying this" so nobody doubles up. Keep it secret!</p></div>`;
+
+  for (const r of list) {
+    html += `<div class="card"><h3>${esc(r.name)}'s wishlist</h3>`;
+    if (!r.items.length) {
+      html += `<p class="empty">${esc(r.name)} hasn't added anything yet. Check back soon.</p>`;
+    }
+    for (const it of r.items) {
+      const taken = !!it.bought_by;
+      let action;
+      if (!taken) {
+        action = `<button class="green small" data-toggle="${it.id}">I'm buying this</button>`;
+      } else if (it.bought_by_me) {
+        action = `<span class="badge mine">You're buying this</span>
+                  <button class="ghost small" data-toggle="${it.id}">Undo</button>`;
+      } else {
+        action = `<span class="badge">Bought by ${esc(it.bought_by)}</span>`;
+      }
+      html += `<div class="item ${taken ? "taken" : ""}">
+        <div>
+          <div class="title">${esc(it.title)}</div>
+          ${it.note ? `<div class="note">${linkify(esc(it.note))}</div>` : ""}
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end">${action}</div>
+      </div>`;
+    }
+    html += `</div>`;
+  }
+  $("recipients").innerHTML = html;
+
+  $("recipients").querySelectorAll("[data-toggle]").forEach((btn) => {
+    btn.addEventListener("click", () => toggleBought(Number(btn.dataset.toggle), btn));
+  });
+}
+
+function linkify(escaped) {
+  return escaped.replace(/(https?:\/\/[^\s]+)/g,
+    '<a href="$1" target="_blank" rel="noopener noreferrer">link</a>');
+}
+
+function renderMyItems(items) {
+  if (!items.length) {
+    $("myItems").innerHTML = `<p class="empty">Nothing here yet. Add your first idea below.</p>`;
+    return;
+  }
+  $("myItems").innerHTML = items.map((it) => `
+    <div class="item">
+      <div>
+        <div class="title">${esc(it.title)}</div>
+        ${it.note ? `<div class="note">${linkify(esc(it.note))}</div>` : ""}
+      </div>
+      <button class="danger small" data-del="${it.id}">Remove</button>
+    </div>`).join("");
+
+  $("myItems").querySelectorAll("[data-del]").forEach((btn) => {
+    btn.addEventListener("click", () => deleteItem(Number(btn.dataset.del)));
+  });
+}
+
+async function toggleBought(id, btn) {
+  btn.disabled = true;
+  const { error } = await sb.rpc("toggle_bought", { p_name: me.name, p_pin: me.pin, p_id: id });
+  if (error) showError($("appError"), cleanError(error));
+  await refresh();
+}
+
+async function addItem() {
+  const title = $("newTitle").value.trim();
+  const note = $("newNote").value.trim();
+  if (!title) { showError($("appError"), "Type what you'd like first."); return; }
+  $("addBtn").disabled = true;
+  const { error } = await sb.rpc("add_item", { p_name: me.name, p_pin: me.pin, p_title: title, p_note: note });
+  $("addBtn").disabled = false;
+  if (error) { showError($("appError"), cleanError(error)); return; }
+  $("newTitle").value = "";
+  $("newNote").value = "";
+  await refresh();
+}
+
+async function deleteItem(id) {
+  if (!confirm("Remove this from your list?")) return;
+  const { error } = await sb.rpc("delete_item", { p_name: me.name, p_pin: me.pin, p_id: id });
+  if (error) showError($("appError"), cleanError(error));
+  await refresh();
+}
+
+function logout() {
+  clearSession();
+  me = { name: null, pin: null };
+  $("app").classList.add("hidden");
+  $("login").classList.remove("hidden");
+  updateLoginMode();
+  loadNames();
+}
+
+// ---------- Wire up ----------
+$("nameSelect").addEventListener("change", updateLoginMode);
+$("loginBtn").addEventListener("click", doLogin);
+$("pinInput").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); if (!$("confirmWrap").classList.contains("hidden")) $("pinConfirm").focus(); else doLogin(); } });
+$("pinConfirm").addEventListener("keydown", (e) => { if (e.key === "Enter") doLogin(); });
+$("logoutBtn").addEventListener("click", logout);
+$("addBtn").addEventListener("click", addItem);
+$("newTitle").addEventListener("keydown", (e) => { if (e.key === "Enter") addItem(); });
+$("newNote").addEventListener("keydown", (e) => { if (e.key === "Enter") addItem(); });
+
+(async function init() {
+  await loadNames();
+  const saved = loadSession();
+  if (saved && saved.name && saved.pin) {
+    me = saved;
+    await showApp();
+  }
+})();
+</script>
+</body>
+</html>
