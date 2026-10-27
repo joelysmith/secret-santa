@@ -139,11 +139,11 @@
   .for-panel .limit { font-weight: 600; }
   /* ---------- tabs ---------- */
   .seg {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 4px;
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;
     background: var(--pine-2); padding: 4px; border-radius: 999px;
     margin-bottom: 26px;
   }
-  .seg button { background: transparent; color: var(--muted); padding: 11px 10px; }
+  .seg button { background: transparent; color: var(--muted); padding: 11px 6px; font-size: .95rem; }
   .seg button:hover { color: var(--ivory); background: transparent; }
   .seg button.on { background: var(--ivory); color: var(--pine); }
 
@@ -179,6 +179,16 @@
   .adder input { margin-top: 10px; }
   .adder button { margin-top: 14px; width: 100%; }
   .adder h2 { padding-top: 18px; }
+
+  /* ---------- kids' lists ---------- */
+  .for-panel .kids-line { margin-top: 2px; font-size: .95rem; }
+  .kid-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .kid-head h3 { min-width: 0; overflow-wrap: anywhere; }
+  .kid-actions { display: flex; gap: 2px; flex-shrink: 0; }
+  .kid-actions .edit { background: transparent; color: var(--mint); padding: 8px 12px; font-weight: 600; font-size: .88rem; }
+  .kid-actions .edit:hover { background: var(--pine-3); }
+  .kid-add { margin-top: 14px; display: grid; gap: 8px; }
+  .boughtline { color: var(--mint); font-size: .85rem; font-weight: 600; }
 
   @media (prefers-reduced-motion: reduce) {
     button { transition: none; }
@@ -226,13 +236,18 @@
 
     <div id="forPanel" class="for-panel"></div>
 
-    <div class="seg" role="tablist">
+    <div class="seg" id="tabs" role="tablist">
       <button class="on" id="tabTheirs" role="tab" aria-selected="true">Their lists</button>
+      <button id="tabKids" role="tab" aria-selected="false">Kids' lists</button>
       <button id="tabMine" role="tab" aria-selected="false">My list</button>
     </div>
 
     <div id="viewTheirs">
       <div id="recipients"></div>
+    </div>
+
+    <div id="viewKids" class="hidden">
+      <div id="kidsList"></div>
     </div>
 
     <div id="viewMine" class="hidden">
@@ -279,8 +294,15 @@ async function loadNames() {
     showError($("loginError"), "Couldn't reach the database. Check the URL and key in config.js. (" + cleanError(error) + ")");
     return;
   }
-  peopleInfo = data;
-  $("nameSelect").innerHTML = data.map((p) => `<option value="${esc(p.name)}">${esc(p.name)}</option>`).join("");
+  peopleInfo = data.slice();
+  // The shared Parents login (kids' lists). If the database update hasn't been run, it is simply left out.
+  try {
+    const r = await sb.rpc("parent_status");
+    if (!r.error && typeof r.data === "boolean") peopleInfo.push({ name: "Parents", has_pin: r.data });
+  } catch (e) {}
+  $("nameSelect").innerHTML = peopleInfo
+    .map((p) => `<option value="${esc(p.name)}">${p.name === "Parents" ? "Parents (kids' lists)" : esc(p.name)}</option>`)
+    .join("");
   updateLoginMode();
 }
 
@@ -290,9 +312,14 @@ function updateLoginMode() {
   const firstTime = p && !p.has_pin;
   $("confirmWrap").classList.toggle("hidden", !firstTime);
   $("pinLabel").textContent = firstTime ? "Choose a PIN (4 to 8 digits)" : "Your PIN";
+  const isParents = name === "Parents";
   $("pinHint").textContent = firstTime
-    ? "First time here? Pick a PIN you'll remember. You'll use it every time you come back."
-    : "Forgot your PIN? Ask Joel to reset it.";
+    ? (isParents
+        ? "First time? Choose a PIN for the shared parents login. Anyone who knows it can edit the kids' lists."
+        : "First time here? Pick a PIN you'll remember. You'll use it every time you come back.")
+    : (isParents
+        ? "Shared parents login. Forgot the PIN? Ask Joel to reset it."
+        : "Forgot your PIN? Ask Joel to reset it.");
   $("pinInput").value = "";
   $("pinConfirm").value = "";
   hideError($("loginError"));
@@ -311,7 +338,9 @@ async function doLogin() {
   }
 
   $("loginBtn").disabled = true;
-  const { error } = await sb.rpc("login", { p_name: name, p_pin: pin });
+  const { error } = name === "Parents"
+    ? await sb.rpc("parent_login", { p_pin: pin })
+    : await sb.rpc("login", { p_name: name, p_pin: pin });
   $("loginBtn").disabled = false;
   if (error) { showError($("loginError"), cleanError(error)); return; }
 
@@ -332,21 +361,31 @@ function daysToChristmas() {
 async function showApp() {
   $("login").classList.add("hidden");
   $("app").classList.remove("hidden");
-  $("hello").textContent = "Hi " + me.name;
+  const parent = me.name === "Parents";
+  $("hello").textContent = parent ? "Hi parents" : "Hi " + me.name;
   const d = daysToChristmas();
   $("countdown").textContent = d === 0 ? "It's Christmas!" : d === 1 ? "1 day until Christmas" : d + " days until Christmas";
+  // The Parents login only manages the kids' lists: no draw panel, no other tabs.
+  $("forPanel").classList.toggle("hidden", parent);
+  $("tabs").classList.toggle("hidden", parent);
+  if (parent) {
+    setView("kids");
+    await refreshKids();
+    return;
+  }
   setView("theirs");
   await refresh();
+  refreshKids();
 }
 
 function setView(v) {
-  const theirs = v === "theirs";
-  $("viewTheirs").classList.toggle("hidden", !theirs);
-  $("viewMine").classList.toggle("hidden", theirs);
-  $("tabTheirs").classList.toggle("on", theirs);
-  $("tabMine").classList.toggle("on", !theirs);
-  $("tabTheirs").setAttribute("aria-selected", theirs);
-  $("tabMine").setAttribute("aria-selected", !theirs);
+  if (me.name !== "Parents") $("forPanel").classList.toggle("hidden", v === "kids");
+  for (const k of ["theirs", "kids", "mine"]) {
+    const cap = k[0].toUpperCase() + k.slice(1);
+    $("view" + cap).classList.toggle("hidden", v !== k);
+    $("tab" + cap).classList.toggle("on", v === k);
+    $("tab" + cap).setAttribute("aria-selected", v === k);
+  }
 }
 
 async function refresh() {
@@ -505,10 +544,214 @@ async function deleteItem(id) {
   await refresh();
 }
 
+// ---------- Kids' lists ----------
+let kidsCache = null;
+let editingKidItem = null;
+
+async function refreshKids() {
+  const { data, error } = await sb.rpc("get_kids", { p_name: me.name, p_pin: me.pin });
+  if (error) {
+    const msg = cleanError(error);
+    if (/^(PIN not set|Wrong PIN|Unknown name)/.test(msg)) { logout(); return; }
+    $("kidsList").innerHTML = `<p class="empty">Kids' lists aren't available yet.</p><p class="hint">${esc(msg)}</p>`;
+    return;
+  }
+  renderKids(data);
+}
+
+function kidItemHtml(it, parent) {
+  const taken = !!it.bought_by;
+  if (parent && it.id === editingKidItem) {
+    return `<div class="item editing">
+      <input id="editKidTitle" type="text" maxlength="200" value="${esc(it.title)}" aria-label="Gift name" placeholder="Gift idea">
+      <input id="editKidNote" type="text" maxlength="500" value="${esc(it.note || "")}" aria-label="Details or link" placeholder="Size, colour or a link (optional)">
+      <div class="edit-actions">
+        <button class="mint small" id="saveKidEdit">Save</button>
+        <button class="ghost small" id="cancelKidEdit">Cancel</button>
+      </div>
+    </div>`;
+  }
+  let action;
+  if (parent) {
+    action = `<button class="edit" data-kid-edit="${it.id}">Edit</button>
+              <button class="remove" data-kid-itemdel="${it.id}">Remove</button>`;
+  } else if (!taken) {
+    action = `<button class="mint small" data-kid-toggle="${it.id}">I'm buying this</button>`;
+  } else if (it.bought_by_me) {
+    action = `<span class="tag mine">You're buying this</span>
+              <button class="ghost small" data-kid-toggle="${it.id}">Undo</button>`;
+  } else {
+    action = `<span class="tag">Bought by ${esc(it.bought_by)}</span>`;
+  }
+  return `<div class="item ${taken ? "taken" : ""}">
+    <div class="text">
+      <div class="title">${esc(it.title)}</div>
+      ${it.note ? `<div class="note">${linkify(esc(it.note))}</div>` : ""}
+      ${parent && taken ? `<div class="boughtline">Bought by ${esc(it.bought_by)}</div>` : ""}
+    </div>
+    <div class="act">${action}</div>
+  </div>`;
+}
+
+function renderKids(data) {
+  if (data) kidsCache = data;
+  data = kidsCache;
+  if (!data) return;
+  const parent = !!data.is_parent;
+  let html = `<div class="for-panel" style="margin-bottom:28px">
+    <p class="small-line">Kids' lists</p>
+    <p class="kids-line"><span class="limit">$20 limit per kid's present.</span> ${parent
+      ? "Everyone in the family can see these lists and who has bought what."
+      : "Tick what you're buying so nobody doubles up. Everyone can see who has bought what."}</p>
+  </div>`;
+
+  if (parent) {
+    html += `<div class="adder">
+      <h2>Add a child</h2>
+      <input id="newKidName" type="text" maxlength="60" placeholder="Child's name">
+      <button class="mint" id="addKidBtn">Add child</button>
+    </div>`;
+  }
+  if (!data.kids.length) {
+    html += parent
+      ? `<p class="empty">No children yet. Add your first one above.</p>`
+      : `<p class="empty">No kids' lists yet. The parents can add them by logging in as Parents.</p>`;
+  }
+
+  for (const k of data.kids) {
+    const taken = k.items.filter((i) => i.bought_by).length;
+    html += `<div class="person"><div class="kid-head"><h3>${esc(k.name)}</h3>`;
+    if (parent) {
+      html += `<div class="kid-actions">
+        <button class="edit" data-kid-rename="${k.id}">Rename</button>
+        <button class="remove" data-kid-del="${k.id}">Remove</button>
+      </div>`;
+    }
+    html += `</div>`;
+    if (k.items.length) {
+      html += `<div class="count">${k.items.length} ${k.items.length === 1 ? "idea" : "ideas"}, ${taken} bought</div>`;
+    }
+    html += `<div class="list">`;
+    if (!k.items.length) {
+      html += `<p class="empty">${esc(k.name)} has no gift ideas yet.</p>`;
+    }
+    for (const it of k.items) html += kidItemHtml(it, parent);
+    html += `</div>`;
+    if (parent) {
+      html += `<div class="kid-add">
+        <input id="kt-${k.id}" type="text" maxlength="200" placeholder="Add a gift idea for ${esc(k.name)}" aria-label="Gift idea for ${esc(k.name)}">
+        <input id="kn-${k.id}" type="text" maxlength="500" placeholder="Size, colour or a link (optional)" aria-label="Details or link">
+        <button class="mint small" data-kid-add="${k.id}">Add gift</button>
+      </div>`;
+    }
+    html += `</div>`;
+  }
+  $("kidsList").innerHTML = html;
+
+  const root = $("kidsList");
+  root.querySelectorAll("[data-kid-toggle]").forEach((b) => b.addEventListener("click", () => toggleKidBought(Number(b.dataset.kidToggle), b)));
+  if (!parent) return;
+
+  if ($("addKidBtn")) {
+    $("addKidBtn").addEventListener("click", addKid);
+    $("newKidName").addEventListener("keydown", (e) => { if (e.key === "Enter") addKid(); });
+  }
+  root.querySelectorAll("[data-kid-rename]").forEach((b) => b.addEventListener("click", () => renameKid(Number(b.dataset.kidRename))));
+  root.querySelectorAll("[data-kid-del]").forEach((b) => b.addEventListener("click", () => deleteKid(Number(b.dataset.kidDel))));
+  root.querySelectorAll("[data-kid-add]").forEach((b) => {
+    const id = Number(b.dataset.kidAdd);
+    b.addEventListener("click", () => addKidItem(id));
+    ["kt-", "kn-"].forEach((p) => $(p + id).addEventListener("keydown", (e) => { if (e.key === "Enter") addKidItem(id); }));
+  });
+  root.querySelectorAll("[data-kid-edit]").forEach((b) => b.addEventListener("click", () => {
+    editingKidItem = Number(b.dataset.kidEdit);
+    renderKids();
+    $("editKidTitle").focus();
+  }));
+  root.querySelectorAll("[data-kid-itemdel]").forEach((b) => b.addEventListener("click", () => deleteKidItem(Number(b.dataset.kidItemdel))));
+  if (editingKidItem !== null && $("saveKidEdit")) {
+    $("saveKidEdit").addEventListener("click", saveKidEdit);
+    $("cancelKidEdit").addEventListener("click", () => { editingKidItem = null; renderKids(); });
+    ["editKidTitle", "editKidNote"].forEach((id) => $(id).addEventListener("keydown", (e) => {
+      if (e.key === "Enter") saveKidEdit();
+      if (e.key === "Escape") { editingKidItem = null; renderKids(); }
+    }));
+  }
+}
+
+async function kidCall(fn, args) {
+  const { error } = await sb.rpc(fn, { p_name: me.name, p_pin: me.pin, ...args });
+  if (error) {
+    showError($("appError"), cleanError(error));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    return false;
+  }
+  hideError($("appError"));
+  return true;
+}
+
+async function toggleKidBought(id, btn) {
+  btn.disabled = true;
+  await kidCall("toggle_kid_bought", { p_id: id });
+  await refreshKids();
+}
+
+async function addKid() {
+  const name = $("newKidName").value.trim();
+  if (!name) { showError($("appError"), "Type the child's name first."); return; }
+  $("addKidBtn").disabled = true;
+  const ok = await kidCall("add_kid", { p_kid_name: name });
+  if (ok) await refreshKids(); else $("addKidBtn").disabled = false;
+}
+
+async function renameKid(id) {
+  const kid = kidsCache.kids.find((k) => k.id === id);
+  const name = prompt("Child's name", kid ? kid.name : "");
+  if (name === null || !name.trim()) return;
+  if (await kidCall("rename_kid", { p_kid_id: id, p_kid_name: name.trim() })) await refreshKids();
+}
+
+async function deleteKid(id) {
+  const kid = kidsCache.kids.find((k) => k.id === id);
+  if (!kid) return;
+  const bought = kid.items.some((i) => i.bought_by);
+  const msg = `Remove ${kid.name} and their gift ideas?` + (bought ? " Some gifts have already been bought." : "");
+  if (!confirm(msg)) return;
+  if (await kidCall("delete_kid", { p_kid_id: id })) await refreshKids();
+}
+
+async function addKidItem(kidId) {
+  const title = $("kt-" + kidId).value.trim();
+  const note = $("kn-" + kidId).value.trim();
+  if (!title) { showError($("appError"), "Type the gift idea first."); return; }
+  if (await kidCall("add_kid_item", { p_kid_id: kidId, p_title: title, p_note: note })) await refreshKids();
+}
+
+async function saveKidEdit() {
+  const title = $("editKidTitle").value.trim();
+  const note = $("editKidNote").value.trim();
+  if (!title) { showError($("appError"), "A gift needs a name."); return; }
+  $("saveKidEdit").disabled = true;
+  const ok = await kidCall("update_kid_item", { p_id: editingKidItem, p_title: title, p_note: note });
+  if (!ok) { $("saveKidEdit").disabled = false; return; }
+  editingKidItem = null;
+  await refreshKids();
+}
+
+async function deleteKidItem(id) {
+  let bought = false;
+  for (const k of kidsCache.kids) for (const i of k.items) if (i.id === id && i.bought_by) bought = true;
+  if (!confirm(bought ? "Someone has already bought this. Remove it anyway?" : "Remove this gift idea?")) return;
+  if (await kidCall("delete_kid_item", { p_id: id })) await refreshKids();
+}
+
 function logout() {
   clearSession();
   me = { name: null, pin: null };
   editingId = null;
+  editingKidItem = null;
+  kidsCache = null;
+  $("kidsList").innerHTML = "";
   $("app").classList.add("hidden");
   $("login").classList.remove("hidden");
   updateLoginMode();
@@ -529,6 +772,7 @@ $("addBtn").addEventListener("click", addItem);
 $("newTitle").addEventListener("keydown", (e) => { if (e.key === "Enter") addItem(); });
 $("newNote").addEventListener("keydown", (e) => { if (e.key === "Enter") addItem(); });
 $("tabTheirs").addEventListener("click", () => setView("theirs"));
+$("tabKids").addEventListener("click", () => setView("kids"));
 $("tabMine").addEventListener("click", () => setView("mine"));
 
 (async function init() {
